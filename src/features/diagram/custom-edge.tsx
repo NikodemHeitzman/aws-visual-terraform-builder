@@ -9,6 +9,7 @@ import {
 } from 'reactflow'
 import { cn } from '../../lib/utils'
 import { useDiagramStore } from './diagram-store'
+import { useDiagramSettingsStore } from '../ui/diagram-settings-store'
 
 /**
  * Custom edge with thicker stroke and a mid-path delete control.
@@ -50,10 +51,11 @@ export const CustomEdge = memo(function CustomEdge({
     [id],
   )
 
-  const strokeColor = selected
-    ? 'hsl(var(--primary))'
-    : 'hsl(var(--muted-foreground))'
-  const strokeWidth = selected ? 3.5 : 2.5
+  const edgeColor = useDiagramSettingsStore((s) => s.edgeColor)
+  const edgeSelectedColor = useDiagramSettingsStore((s) => s.edgeSelectedColor)
+  const strokeColor = selected ? edgeSelectedColor : edgeColor
+  const baseStrokeWidth = useDiagramSettingsStore((s) => s.edgeStrokeWidth)
+  const strokeWidth = selected ? baseStrokeWidth + 1 : baseStrokeWidth
 
   return (
     <>
@@ -67,8 +69,8 @@ export const CustomEdge = memo(function CustomEdge({
         path={edgePath}
         style={{
           ...style,
-          stroke: strokeColor,
-          strokeWidth,
+          stroke: (style?.stroke as string | undefined) ?? strokeColor,
+          strokeWidth: (style?.strokeWidth as number | undefined) ?? strokeWidth,
         }}
       />
       <EdgeLabelRenderer>

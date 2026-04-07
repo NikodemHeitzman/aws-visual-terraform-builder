@@ -33,6 +33,7 @@ import {
   awsConnectionRejectionMessage,
   isAwsConnectionAllowed,
 } from './connection-rules'
+import { useDiagramSettingsStore } from '../ui/diagram-settings-store'
 import { useThemeStore } from '../ui/theme-store'
 import { ToastViewport, type ToastItem } from '../../components/ui/toast'
 
@@ -133,10 +134,13 @@ export function ArchitectureCanvas() {
   const isDark = theme === 'dark'
   const nodes = useDiagramStore((state) => state.nodes)
   const edges = useDiagramStore((state) => state.edges)
-  const hoveredNodeId = useDiagramStore((state) => state.hoveredNodeId)
-  const hoveredEdgeId = useDiagramStore((state) => state.hoveredEdgeId)
   const setHoveredNode = useDiagramStore((state) => state.setHoveredNode)
   const setHoveredEdge = useDiagramStore((state) => state.setHoveredEdge)
+  const undo = useDiagramStore((state) => state.undo)
+  const hoverFocusDelayMs = useDiagramSettingsStore((state) => state.hoverFocusDelayMs)
+  const shortcutCopy = useDiagramSettingsStore((state) => state.shortcutCopy)
+  const shortcutPaste = useDiagramSettingsStore((state) => state.shortcutPaste)
+  const shortcutDuplicate = useDiagramSettingsStore((state) => state.shortcutDuplicate)
   const fitViewRequestId = useDiagramStore((state) => state.fitViewRequestId)
   const onNodesChange = useDiagramStore((state) => state.onNodesChange)
   const onEdgesChange = useDiagramStore((state) => state.onEdgesChange)
@@ -147,6 +151,14 @@ export function ArchitectureCanvas() {
 
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [activeHoveredNodeId, setActiveHoveredNodeId] = useState<string | null>(null)
+  const [activeHoveredEdgeId, setActiveHoveredEdgeId] = useState<string | null>(null)
+  const hoverDelayTimerRef = useRef<number | null>(null)
+  const copiedSelectionRef = useRef<{
+    nodes: Node<AwsNodeData>[]
+    edges: Edge[]
+    pasteCount: number
+  } | null>(null)
   const didConnectThisGestureRef = useRef(false)
   const lastInvalidConnectionRef = useRef<{ source: string; target: string } | null>(
     null,
@@ -174,31 +186,71 @@ export function ArchitectureCanvas() {
   )
 
   const { nodes: displayNodes, edges: displayEdges } = useMemo(
-    () => applyDiagramHoverStyles(nodes, edges, hoveredNodeId, hoveredEdgeId),
-    [nodes, edges, hoveredNodeId, hoveredEdgeId],
+    () => applyDiagramHoverStyles(nodes, edges, activeHoveredNodeId, activeHoveredEdgeId),
+    [nodes, edges, activeHoveredNodeId, activeHoveredEdgeId],
   )
 
   const onNodeMouseEnter = useCallback<NodeMouseHandler>(
     (_, node) => {
       setHoveredNode(node.id)
+      setHoveredEdge(null)
+      setActiveHoveredNodeId(null)
+      setActiveHoveredEdgeId(null)
+      if (hoverDelayTimerRef.current) {
+        window.clearTimeout(hoverDelayTimerRef.current)
+      }
+      hoverDelayTimerRef.current = window.setTimeout(() => {
+        setActiveHoveredNodeId(node.id)
+        setActiveHoveredEdgeId(null)
+      }, hoverFocusDelayMs)
     },
-    [setHoveredNode],
+    [hoverFocusDelayMs, setHoveredEdge, setHoveredNode],
   )
 
   const onNodeMouseLeave = useCallback(() => {
     setHoveredNode(null)
+    setActiveHoveredNodeId(null)
+    setActiveHoveredEdgeId(null)
+    if (hoverDelayTimerRef.current) {
+      window.clearTimeout(hoverDelayTimerRef.current)
+      hoverDelayTimerRef.current = null
+    }
   }, [setHoveredNode])
 
   const onEdgeMouseEnter = useCallback<EdgeMouseHandler>(
     (_, edge) => {
       setHoveredEdge(edge.id)
+      setHoveredNode(null)
+      setActiveHoveredNodeId(null)
+      setActiveHoveredEdgeId(null)
+      if (hoverDelayTimerRef.current) {
+        window.clearTimeout(hoverDelayTimerRef.current)
+      }
+      hoverDelayTimerRef.current = window.setTimeout(() => {
+        setActiveHoveredEdgeId(edge.id)
+        setActiveHoveredNodeId(null)
+      }, hoverFocusDelayMs)
     },
-    [setHoveredEdge],
+    [hoverFocusDelayMs, setHoveredEdge, setHoveredNode],
   )
 
   const onEdgeMouseLeave = useCallback(() => {
     setHoveredEdge(null)
+    setActiveHoveredNodeId(null)
+    setActiveHoveredEdgeId(null)
+    if (hoverDelayTimerRef.current) {
+      window.clearTimeout(hoverDelayTimerRef.current)
+      hoverDelayTimerRef.current = null
+    }
   }, [setHoveredEdge])
+
+  useEffect(() => {
+    return () => {
+      if (hoverDelayTimerRef.current) {
+        window.clearTimeout(hoverDelayTimerRef.current)
+      }
+    }
+  }, [])
 
   const onNodeClick = (_: ReactMouseEvent, node: Node<AwsNodeData>) => {
     setSelectedNodeId(node.id)
@@ -216,20 +268,105 @@ export function ArchitectureCanvas() {
   }
 
   useEffect(() => {
+    const copySelection = () => {
+      const state = useDiagramStore.getState()
+      const selectedNodes = state.nodes.filter((n) => n.selected)
+      if (selectedNodes.length === 0) return
+      const selectedIds = new Set(selectedNodes.map((n) => n.id))
+      const selectedEdges = state.edges.filter(
+        (e) => selectedIds.has(e.source) && selectedIds.has(e.target),
+      )
+      copiedSelectionRef.current = {
+        nodes: selectedNodes.map((n) => ({ ...n, selected: false })),
+        edges: selectedEdges.map((e) => ({ ...e, selected: false })),
+        pasteCount: 0,
+      }
+    }
+
+    const pasteSelection = () => {
+      const copied = copiedSelectionRef.current
+      if (!copied || copied.nodes.length === 0) return
+      const state = useDiagramStore.getState()
+      const ts = Date.now()
+      copied.pasteCount += 1
+      const delta = 40 * copied.pasteCount
+      const idMap = new Map<string, string>()
+      const newNodes = copied.nodes.map((n, index) => {
+        const newId = `${n.id}-copy-${ts}-${index}`
+        idMap.set(n.id, newId)
+        const mappedParent = n.parentNode ? (idMap.get(n.parentNode) ?? n.parentNode) : undefined
+        return {
+          ...n,
+          id: newId,
+          parentNode: mappedParent,
+          position: { x: n.position.x + delta, y: n.position.y + delta },
+          selected: true,
+        }
+      })
+      const newEdges: Edge[] = []
+      copied.edges.forEach((e, index) => {
+        const source = idMap.get(e.source)
+        const target = idMap.get(e.target)
+        if (!source || !target) return
+        newEdges.push({
+          ...e,
+          id: `${e.id}-copy-${ts}-${index}`,
+          source,
+          target,
+          selected: true,
+        })
+      })
+
+      useDiagramStore.setState({
+        nodes: [...state.nodes.map((n) => ({ ...n, selected: false })), ...newNodes],
+        edges: [...state.edges.map((e) => ({ ...e, selected: false })), ...newEdges],
+        selectedNodeId: newNodes[0]?.id ?? null,
+      })
+    }
+
+    const duplicateSelection = () => {
+      copySelection()
+      pasteSelection()
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a') return
+      if (!(event.ctrlKey || event.metaKey)) return
       const target = event.target as HTMLElement | null
       if (target?.closest('input, textarea, [contenteditable="true"]')) return
-      event.preventDefault()
-      useDiagramStore.setState((state) => ({
-        nodes: state.nodes.map((n) => ({ ...n, selected: true })),
-        edges: state.edges.map((e) => ({ ...e, selected: true })),
-        selectedNodeId: state.nodes[0]?.id ?? null,
-      }))
+      const key = event.key.toLowerCase()
+      if (key === 'a') {
+        event.preventDefault()
+        const state = useDiagramStore.getState()
+        useDiagramStore.setState({
+          nodes: state.nodes.map((n) => ({ ...n, selected: true })),
+          edges: state.edges.map((e) => ({ ...e, selected: true })),
+          selectedNodeId: state.nodes[0]?.id ?? null,
+        })
+        return
+      }
+      if (key === 'z') {
+        event.preventDefault()
+        undo()
+        return
+      }
+      if (key === shortcutCopy) {
+        event.preventDefault()
+        copySelection()
+        return
+      }
+      if (key === shortcutPaste) {
+        event.preventDefault()
+        pasteSelection()
+        return
+      }
+      if (key === shortcutDuplicate) {
+        event.preventDefault()
+        duplicateSelection()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [shortcutCopy, shortcutDuplicate, shortcutPaste, undo])
 
   useEffect(() => {
     if (fitViewRequestId === 0) return
@@ -421,6 +558,12 @@ export function ArchitectureCanvas() {
           setSelectedNodeId(null)
           setHoveredNode(null)
           setHoveredEdge(null)
+          setActiveHoveredNodeId(null)
+          setActiveHoveredEdgeId(null)
+          if (hoverDelayTimerRef.current) {
+            window.clearTimeout(hoverDelayTimerRef.current)
+            hoverDelayTimerRef.current = null
+          }
         }}
         onDragOver={onDragOver}
         onDrop={onDrop}

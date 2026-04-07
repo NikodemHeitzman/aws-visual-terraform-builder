@@ -1,5 +1,7 @@
 # ☁️ AWS Visual Terraform Builder (Self-Service IaC Portal)
 
+![Hero architecture](imagie/hero-shot.png)
+
 A 100% client-side Platform Engineering tool for visually designing AWS architectures and generating Terraform-as-Code outputs.  
 The application helps teams move from manual whiteboard diagrams to repeatable self-service IaC workflows with built-in DevOps and DevSecOps-friendly defaults.
 
@@ -32,6 +34,13 @@ I am a DevOps/Platform Engineer. I built this tool rapidly to solve a specific i
 - React Flow (graph editor)
 - Tailwind CSS
 - Dagre (layouting)
+
+## 🖼️ From Code to Canvas
+
+![Parser proof](imagie/parser-proof.png)
+
+The custom Terraform parser reads HCL blocks and translates them into interactive, editable nodes and edges on the canvas.  
+This enables reverse engineering workflows where existing infrastructure code becomes a visual architecture map in seconds.
 
 ## 🚀 Self-hosting & deployment
 
@@ -95,7 +104,9 @@ npm run build
 npm run lint
 ```
 
-## Generated IaC bundle
+## 📦 Production-Ready Outputs
+
+![Bundle structure](imagie/bundle-structure.png)
 
 From the UI, generate Terraform and download a ZIP bundle containing:
 
@@ -103,6 +114,24 @@ From the UI, generate Terraform and download a ZIP bundle containing:
 - `variables.tf`
 - `outputs.tf`
 - `.github/workflows/deploy.yml` (basic Terraform pipeline scaffold)
+
+### 🚀 Generated CI/CD Pipeline
+
+```yaml
+name: 'Terraform Deploy'
+on:
+  push:
+    branches: [ "main" ]
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+      - run: terraform init
+      - run: terraform plan
+      - run: terraform apply -auto-approve
+```
 
 ## DevSecOps note
 

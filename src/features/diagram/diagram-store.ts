@@ -46,6 +46,7 @@ function syncGraphAfterStructuralChange(
 type DiagramState = {
   nodes: Node<AwsNodeData>[]
   edges: Edge[]
+  history: Array<{ nodes: Node<AwsNodeData>[]; edges: Edge[]; selectedNodeId: string | null }>
   /** Incremented after JSON / Terraform import so the canvas can call fitView. */
   fitViewRequestId: number
   selectedNodeId: string | null
@@ -53,6 +54,7 @@ type DiagramState = {
   hoveredEdgeId: string | null
   setHoveredNode: (id: string | null) => void
   setHoveredEdge: (id: string | null) => void
+  undo: () => void
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
   onConnect: (connection: Connection) => void
@@ -78,9 +80,28 @@ const initialNodes: Node<AwsNodeData>[] = []
 
 const initialEdges: Edge[] = []
 
+function cloneSnapshot(
+  nodes: Node<AwsNodeData>[],
+  edges: Edge[],
+  selectedNodeId: string | null,
+) {
+  return {
+    nodes: nodes.map((n) => ({ ...n, position: { ...n.position }, data: { ...n.data } })),
+    edges: edges.map((e) => ({ ...e })),
+    selectedNodeId,
+  }
+}
+
+function withHistory(state: DiagramState) {
+  const next = cloneSnapshot(state.nodes, state.edges, state.selectedNodeId)
+  const history = [...state.history, next]
+  return history.length > 60 ? history.slice(history.length - 60) : history
+}
+
 export const useDiagramStore = create<DiagramState>((set, get) => ({
   nodes: initialNodes,
   edges: initialEdges,
+  history: [],
   fitViewRequestId: 0,
   selectedNodeId: null,
   hoveredNodeId: null,
@@ -91,8 +112,23 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   setHoveredEdge: (id) => {
     set({ hoveredEdgeId: id })
   },
+  undo: () => {
+    set((state) => {
+      if (state.history.length === 0) return state
+      const prev = state.history[state.history.length - 1]
+      return {
+        nodes: prev.nodes,
+        edges: prev.edges,
+        selectedNodeId: prev.selectedNodeId,
+        hoveredNodeId: null,
+        hoveredEdgeId: null,
+        history: state.history.slice(0, -1),
+      }
+    })
+  },
   onNodesChange: (changes) => {
     set((state) => {
+      const history = withHistory(state)
       let nodes = applyNodeChanges(changes, state.nodes)
       const synced = syncGraphAfterStructuralChange(nodes, state.edges)
       nodes = synced.nodes
@@ -114,11 +150,13 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
           edges.some((e) => e.id === state.hoveredEdgeId)
             ? state.hoveredEdgeId
             : null,
+        history,
       }
     })
   },
   onEdgesChange: (changes) => {
     set((state) => {
+      const history = withHistory(state)
       const edges = applyEdgeChanges(changes, state.edges)
       return {
         edges,
@@ -127,11 +165,13 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
           edges.some((e) => e.id === state.hoveredEdgeId)
             ? state.hoveredEdgeId
             : null,
+        history,
       }
     })
   },
   onConnect: (connection) => {
     set((state) => ({
+      history: withHistory(state),
       edges: addEdge(
         { ...connection, type: 'default', animated: true },
         state.edges,
@@ -140,6 +180,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   },
   deleteEdge: (edgeId) => {
     set((state) => ({
+      history: withHistory(state),
       edges: state.edges.filter((edge) => edge.id !== edgeId),
       hoveredEdgeId: state.hoveredEdgeId === edgeId ? null : state.hoveredEdgeId,
     }))
@@ -150,6 +191,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   addNode: (resourceType, position, options) => {
     let createdNodeId = ''
     set((state) => {
+      const history = withHistory(state)
       const nextIndex =
         state.nodes.filter((node) => node.data.resourceType === resourceType).length + 1
       const nodeId = `${resourceType}-${nextIndex}-${Date.now()}`
@@ -185,12 +227,14 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
           },
         ],
         selectedNodeId: nodeId,
+        history,
       }
     })
     return createdNodeId
   },
   deleteNode: (nodeId) => {
     set((state) => {
+      const history = withHistory(state)
       const nodesAfterRemove = state.nodes.filter((node) => node.id !== nodeId)
       const edgesAfterRemove = state.edges.filter(
         (edge) => edge.source !== nodeId && edge.target !== nodeId,
@@ -214,6 +258,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
         selectedNodeId: selectedStillExists ? state.selectedNodeId : null,
         hoveredNodeId: hoverNodeOk,
         hoveredEdgeId: hoverEdgeOk,
+        history,
       }
     })
   },
@@ -221,6 +266,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     set({
       nodes: initialNodes,
       edges: initialEdges,
+      history: [],
       selectedNodeId: null,
       hoveredNodeId: null,
       hoveredEdgeId: null,
@@ -229,6 +275,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   },
   updateNodeData: (nodeId, data) => {
     set((state) => ({
+      history: withHistory(state),
       nodes: state.nodes.map((node) => {
         if (node.id !== nodeId) return node
         return {
@@ -257,6 +304,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     set({
       nodes: synced.nodes,
       edges: synced.edges,
+      history: [],
       selectedNodeId: null,
       hoveredNodeId: null,
       hoveredEdgeId: null,
@@ -272,6 +320,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     set({
       nodes: synced.nodes,
       edges: synced.edges,
+      history: [],
       selectedNodeId: null,
       hoveredNodeId: null,
       hoveredEdgeId: null,

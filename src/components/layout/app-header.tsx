@@ -1,4 +1,12 @@
-import { Cloud, Download, FileCode2, Moon, RotateCcw, ShieldAlert, Sun, Upload } from 'lucide-react'
+import {
+  Cloud,
+  Download,
+  FileCode2,
+  RotateCcw,
+  Settings2,
+  ShieldAlert,
+  Upload,
+} from 'lucide-react'
 import { useRef, useState, type ChangeEvent } from 'react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
@@ -17,10 +25,25 @@ import {
 } from '../ui/dialog'
 import { ToastViewport, type ToastItem } from '../ui/toast'
 import { useThemeStore } from '../../features/ui/theme-store'
+import { useDiagramSettingsStore } from '../../features/ui/diagram-settings-store'
 
 export function AppHeader() {
   const theme = useThemeStore((state) => state.theme)
-  const toggleTheme = useThemeStore((state) => state.toggleTheme)
+  const setTheme = useThemeStore((state) => state.setTheme)
+  const hoverFocusDelayMs = useDiagramSettingsStore((state) => state.hoverFocusDelayMs)
+  const edgeColor = useDiagramSettingsStore((state) => state.edgeColor)
+  const edgeSelectedColor = useDiagramSettingsStore((state) => state.edgeSelectedColor)
+  const edgeStrokeWidth = useDiagramSettingsStore((state) => state.edgeStrokeWidth)
+  const setHoverFocusDelayMs = useDiagramSettingsStore((state) => state.setHoverFocusDelayMs)
+  const setEdgeColor = useDiagramSettingsStore((state) => state.setEdgeColor)
+  const setEdgeSelectedColor = useDiagramSettingsStore((state) => state.setEdgeSelectedColor)
+  const setEdgeStrokeWidth = useDiagramSettingsStore((state) => state.setEdgeStrokeWidth)
+  const shortcutCopy = useDiagramSettingsStore((state) => state.shortcutCopy)
+  const shortcutPaste = useDiagramSettingsStore((state) => state.shortcutPaste)
+  const shortcutDuplicate = useDiagramSettingsStore((state) => state.shortcutDuplicate)
+  const setShortcutCopy = useDiagramSettingsStore((state) => state.setShortcutCopy)
+  const setShortcutPaste = useDiagramSettingsStore((state) => state.setShortcutPaste)
+  const setShortcutDuplicate = useDiagramSettingsStore((state) => state.setShortcutDuplicate)
   const nodes = useDiagramStore((state) => state.nodes)
   const edges = useDiagramStore((state) => state.edges)
   const resetCanvas = useDiagramStore((state) => state.resetCanvas)
@@ -28,6 +51,7 @@ export function AppHeader() {
   const importDiagram = useDiagramStore((state) => state.importDiagram)
   const loadImportedDiagram = useDiagramStore((state) => state.loadImportedDiagram)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'main.tf' | 'variables.tf' | 'outputs.tf'>(
     'main.tf',
   )
@@ -189,8 +213,8 @@ export function AppHeader() {
 
   return (
     <>
-      <header className="flex h-16 items-center justify-between border-b bg-card px-5">
-        <div className="flex items-center gap-2">
+      <header className="flex h-16 items-center justify-between border-b bg-card px-4">
+        <div className="flex items-center gap-3">
           <Cloud className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold tracking-tight">
             AWS Visual Terraform Builder
@@ -212,18 +236,6 @@ export function AppHeader() {
             type="file"
             onChange={onImportTf}
           />
-          <Button
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            size="sm"
-            variant="outline"
-            onClick={toggleTheme}
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-          </Button>
           <Button size="sm" variant="outline" onClick={onReset}>
             <RotateCcw className="mr-1 h-4 w-4" />
             Reset
@@ -239,6 +251,10 @@ export function AppHeader() {
           <Button size="sm" variant="outline" onClick={onImportTfClick}>
             <FileCode2 className="mr-1 h-4 w-4" />
             Import .tf
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>
+            <Settings2 className="mr-1 h-4 w-4" />
+            Settings
           </Button>
           <Button className="min-w-24" onClick={onMakeIt}>
             Make it!
@@ -287,6 +303,115 @@ export function AppHeader() {
               Download ZIP bundle
             </Button>
             <Button onClick={onCopy}>Copy to Clipboard</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Editor settings</DialogTitle>
+            <DialogDescription>
+              Dostosuj wyglad i interakcje diagramu pod siebie.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-md border p-3">
+              <p className="mb-2 text-sm font-semibold">Appearance</p>
+              <label className="mb-3 block text-xs text-muted-foreground">
+                Theme
+                <select
+                  className="mt-1 w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                  value={theme}
+                  onChange={(event) => setTheme(event.target.value as 'light' | 'dark')}
+                >
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="rounded-md border p-3">
+              <p className="mb-2 text-sm font-semibold">Interaction</p>
+              <label className="block text-xs text-muted-foreground">
+                Focus delay: {(hoverFocusDelayMs / 1000).toFixed(1)}s
+                <input
+                  className="mt-2 w-full"
+                  type="range"
+                  min={0}
+                  max={5000}
+                  step={250}
+                  value={hoverFocusDelayMs}
+                  onChange={(event) => setHoverFocusDelayMs(Number(event.target.value))}
+                />
+              </label>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                <label>
+                  Copy
+                  <input
+                    className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    maxLength={1}
+                    value={shortcutCopy}
+                    onChange={(event) => setShortcutCopy(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Paste
+                  <input
+                    className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    maxLength={1}
+                    value={shortcutPaste}
+                    onChange={(event) => setShortcutPaste(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Duplicate
+                  <input
+                    className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    maxLength={1}
+                    value={shortcutDuplicate}
+                    onChange={(event) => setShortcutDuplicate(event.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-md border p-3 md:col-span-2">
+              <p className="mb-2 text-sm font-semibold">Connections</p>
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="text-xs text-muted-foreground">
+                  Edge color
+                  <input
+                    className="mt-1 h-9 w-full cursor-pointer rounded-md border border-input bg-background p-1"
+                    type="color"
+                    value={edgeColor}
+                    onChange={(event) => setEdgeColor(event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-muted-foreground">
+                  Selected edge color
+                  <input
+                    className="mt-1 h-9 w-full cursor-pointer rounded-md border border-input bg-background p-1"
+                    type="color"
+                    value={edgeSelectedColor}
+                    onChange={(event) => setEdgeSelectedColor(event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-muted-foreground">
+                  Edge size: {edgeStrokeWidth.toFixed(1)}px
+                  <input
+                    className="mt-2 w-full"
+                    type="range"
+                    min={1}
+                    max={8}
+                    step={0.5}
+                    value={edgeStrokeWidth}
+                    onChange={(event) => setEdgeStrokeWidth(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
