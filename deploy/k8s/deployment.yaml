@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aws-visual-terraform-builder
+  labels:
+    app: aws-visual-terraform-builder
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aws-visual-terraform-builder
+  template:
+    metadata:
+      labels:
+        app: aws-visual-terraform-builder
+    spec:
+      containers:
+        - name: app
+          image: aws-visual-terraform-builder:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aws-visual-terraform-builder
+  labels:
+    app: aws-visual-terraform-builder
+spec:
+  selector:
+    app: aws-visual-terraform-builder
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aws-visual-terraform-builder
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: aws-visual-builder.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aws-visual-terraform-builder
+                port:
+                  number: 80

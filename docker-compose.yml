@@ -1,0 +1,14 @@
+services:
+  visual-terraform-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aws-visual-builder
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
